@@ -5,6 +5,7 @@ pub mod bloom;
 pub mod memtable;
 pub mod metrics;
 pub mod sstable;
+pub mod ttl;
 pub mod wal;
 
 use crate::config::Config;
@@ -13,6 +14,7 @@ use crate::types::{Key, Value};
 
 use self::memtable::MemTable;
 use self::metrics::EngineMetrics;
+use self::ttl::TtlIndex;
 use self::wal::WriteAheadLog;
 
 /// The core Oblivion storage engine.
@@ -29,6 +31,8 @@ pub struct Oblivion {
     flush_count: u64,
     /// Runtime operation metrics.
     metrics: EngineMetrics,
+    /// TTL index for key expiration.
+    ttl_index: TtlIndex,
 }
 
 impl Oblivion {
@@ -57,6 +61,7 @@ impl Oblivion {
             config,
             flush_count: 0,
             metrics,
+            ttl_index: TtlIndex::new(),
         })
     }
 
@@ -73,9 +78,22 @@ impl Oblivion {
         Ok(())
     }
 
+    /// Insert a key-value pair with a TTL (time-to-live) in milliseconds.
+    /// The key will be treated as expired after `ttl_ms` milliseconds.
+    pub fn put_with_ttl(&mut self, key: Key, value: Value, ttl_ms: u64) -> Result<()> {
+        self.ttl_index.set_ttl(key.clone(), ttl_ms);
+        self.put(key, value)
+    }
+
     /// Get a value by key from the storage engine.
     /// Read path: MemTable (memory) -> (future: SSTables on disk).
+    /// Keys with expired TTL will return `None`.
     pub fn get(&self, key: &[u8]) -> Option<Value> {
+        // Check TTL expiration first
+        if self.ttl_index.is_expired(key) {
+            return None;
+        }
+
         let result = self.memtable.get(key).cloned();
         self.metrics.record_get(result.as_ref().map(|v| v.len()));
         result
@@ -84,6 +102,7 @@ impl Oblivion {
     /// Delete a key from the storage engine.
     pub fn delete(&mut self, key: Key) -> Result<()> {
         self.metrics.record_delete();
+        self.ttl_index.remove_ttl(&key);
         self.wal.append_delete(&key)?;
         self.memtable.delete(key);
         self.maybe_flush()?;
@@ -91,13 +110,20 @@ impl Oblivion {
     }
 
     /// Scan all key-value pairs in sorted order.
+    /// Excludes keys with expired TTLs.
     pub fn scan(&self) -> Vec<(Key, Value)> {
         self.metrics.record_scan();
         self.memtable
             .scan()
             .into_iter()
+            .filter(|(k, _)| !self.ttl_index.is_expired(k))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
+    }
+
+    /// Get the remaining TTL for a key in milliseconds.
+    pub fn ttl(&self, key: &[u8]) -> Option<u64> {
+        self.ttl_index.remaining_ttl(key)
     }
 
     /// Returns the number of entries in the MemTable.
@@ -131,12 +157,20 @@ impl Oblivion {
                 self.config.memtable_max_size
             );
 
+            // Purge expired keys before flushing
+            self.ttl_index.purge_expired();
+
             // In production: write MemTable entries to SSTable
             let sstable_path = self.config.data_dir.join(format!(
                 "sstable_{:06}.sst",
                 self.flush_count
             ));
-            let entries = self.scan();
+            let entries = self.memtable
+                .scan()
+                .into_iter()
+                .filter(|(k, _)| !self.ttl_index.is_expired(k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>();
             let _sstable = sstable::SSTable::flush_from_memtable(sstable_path, &entries)?;
 
             // Truncate WAL (data is now in SSTable)
