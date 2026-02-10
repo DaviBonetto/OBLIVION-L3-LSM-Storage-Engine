@@ -22,6 +22,8 @@ pub struct Oblivion {
     wal: WriteAheadLog,
     /// Engine configuration.
     config: Config,
+    /// Counter for SSTable file naming.
+    flush_count: u64,
 }
 
 impl Oblivion {
@@ -43,21 +45,24 @@ impl Oblivion {
             memtable,
             wal,
             config,
+            flush_count: 0,
         })
     }
 
     /// Insert a key-value pair into the storage engine.
-    /// Write path: WAL (disk) -> MemTable (memory).
+    /// Write path: WAL (disk) -> MemTable (memory) -> check flush.
     pub fn put(&mut self, key: Key, value: Value) -> Result<()> {
         self.wal.append_put(&key, &value)?;
         self.memtable.insert(key, value);
+
+        // Check if MemTable needs flushing
+        self.maybe_flush()?;
+
         Ok(())
     }
 
     /// Get a value by key from the storage engine.
     /// Read path: MemTable (memory) -> (future: SSTables on disk).
-    /// In a full LSM implementation, if not found in MemTable,
-    /// we would check immutable MemTables, then SSTables (L0 -> LN).
     pub fn get(&self, key: &[u8]) -> Option<Value> {
         self.memtable.get(key).cloned()
     }
@@ -66,6 +71,7 @@ impl Oblivion {
     pub fn delete(&mut self, key: Key) -> Result<()> {
         self.wal.append_delete(&key)?;
         self.memtable.delete(key);
+        self.maybe_flush()?;
         Ok(())
     }
 
@@ -91,5 +97,41 @@ impl Oblivion {
     /// Returns the approximate size of the MemTable in bytes.
     pub fn memtable_size(&self) -> usize {
         self.memtable.size()
+    }
+
+    /// Check if the MemTable exceeds the configured size threshold.
+    /// If so, trigger a flush: simulate writing to SSTable,
+    /// truncate the WAL, and reset the MemTable.
+    fn maybe_flush(&mut self) -> Result<()> {
+        if self.memtable.size() >= self.config.memtable_max_size {
+            log::info!(
+                "MemTable size ({} bytes) exceeds threshold ({} bytes), triggering flush...",
+                self.memtable.size(),
+                self.config.memtable_max_size
+            );
+
+            // In production: write MemTable entries to SSTable
+            let sstable_path = self.config.data_dir.join(format!(
+                "sstable_{:06}.sst",
+                self.flush_count
+            ));
+            let entries = self.scan();
+            let _sstable = sstable::SSTable::flush_from_memtable(sstable_path, &entries)?;
+
+            // Truncate WAL (data is now in SSTable)
+            self.wal.truncate()?;
+
+            // Reset MemTable
+            self.memtable.clear();
+            self.flush_count += 1;
+
+            log::info!(
+                "Flush #{} complete. {} entries written to SSTable.",
+                self.flush_count,
+                entries.len()
+            );
+        }
+
+        Ok(())
     }
 }
