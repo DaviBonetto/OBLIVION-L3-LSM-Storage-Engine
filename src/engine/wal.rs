@@ -7,7 +7,7 @@ use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 
 use crate::engine::memtable::MemTable;
-use crate::error::{OblivionError, Result};
+use crate::error::Result;
 use crate::types::{Key, Value};
 
 /// Operation type for WAL entries.
@@ -104,7 +104,7 @@ impl WriteAheadLog {
         // Flush any remaining buffered data
         self.writer.flush()?;
         // Truncate
-        let file = OpenOptions::new()
+        let _file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)

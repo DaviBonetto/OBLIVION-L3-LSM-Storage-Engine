@@ -177,7 +177,10 @@ mod tests {
         table.insert(b"bravo".to_vec(), b"2".to_vec());
         let results = table.scan();
         let keys: Vec<&[u8]> = results.iter().map(|(k, _)| k.as_slice()).collect();
-        assert_eq!(keys, vec![b"alpha", b"bravo", b"charlie"]);
+        assert_eq!(keys.len(), 3);
+        assert_eq!(keys[0], b"alpha");
+        assert_eq!(keys[1], b"bravo");
+        assert_eq!(keys[2], b"charlie");
     }
 
     #[test]
