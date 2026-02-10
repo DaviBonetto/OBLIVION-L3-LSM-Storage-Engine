@@ -2,7 +2,10 @@
 //! Provides durability by logging all mutations to disk
 //! before they are applied to the in-memory MemTable.
 
+use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
+
+use crate::error::Result;
 
 /// Write-Ahead Log for crash recovery and durability.
 /// Every write operation is first appended to the WAL on disk
@@ -10,16 +13,29 @@ use std::path::PathBuf;
 pub struct WriteAheadLog {
     /// Path to the WAL file on disk.
     path: PathBuf,
+    /// File handle opened for appending.
+    file: File,
 }
 
 impl WriteAheadLog {
-    /// Create a new WAL instance with the given path.
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    /// Open or create a WAL file at the specified path.
+    /// The file is opened in append mode for sequential writes.
+    pub fn open(path: PathBuf) -> Result<Self> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+
+        Ok(Self { path, file })
     }
 
     /// Returns the path to the WAL file.
     pub fn path(&self) -> &PathBuf {
         &self.path
+    }
+
+    /// Returns a reference to the underlying file.
+    pub fn file(&self) -> &File {
+        &self.file
     }
 }
