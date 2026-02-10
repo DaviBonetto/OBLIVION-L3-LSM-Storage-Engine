@@ -3,6 +3,7 @@
 
 pub mod bloom;
 pub mod compaction;
+pub mod concurrent;
 pub mod memtable;
 pub mod metrics;
 pub mod sstable;
