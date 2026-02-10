@@ -2,7 +2,6 @@
 //! Measures throughput of core engine operations using Criterion.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use std::path::PathBuf;
 
 fn bench_memtable_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("memtable");

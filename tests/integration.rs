@@ -2,13 +2,11 @@
 //! End-to-end tests validating the full engine lifecycle:
 //! open → put → get → delete → scan → crash recovery → flush.
 
-use std::path::PathBuf;
 
 // Import the library modules directly from the binary crate
 // by using the module path structure.
 mod common {
-    use std::path::PathBuf;
-
+    
     /// Create a Config pointing to a temporary directory.
     pub fn temp_config(dir: &std::path::Path) -> oblivion::config::Config {
         oblivion::config::Config {
