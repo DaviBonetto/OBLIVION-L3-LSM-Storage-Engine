@@ -58,7 +58,10 @@ impl SSTable {
     ) -> crate::error::Result<Self> {
         // TODO: Implement actual SSTable flush
         // For now, this is a mock that simulates the flush
-        log::info!("SSTable flush triggered (stub) - {} entries", _entries.len());
+        log::info!(
+            "SSTable flush triggered (stub) - {} entries",
+            _entries.len()
+        );
         Ok(Self {
             path: _path,
             entry_count: _entries.len(),

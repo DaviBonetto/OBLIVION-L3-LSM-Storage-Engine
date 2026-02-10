@@ -1,7 +1,7 @@
 //! OBLIVION - Performance Benchmarks
 //! Measures throughput of core engine operations using Criterion.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn bench_memtable_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("memtable");
@@ -140,32 +140,28 @@ fn bench_engine_e2e(c: &mut Criterion) {
     let mut group = c.benchmark_group("engine_e2e");
 
     for size in [100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("put_get_cycle", size),
-            size,
-            |b, &size| {
-                b.iter(|| {
-                    let dir = tempfile::tempdir().unwrap();
-                    let config = oblivion::config::Config {
-                        data_dir: dir.path().to_path_buf(),
-                        memtable_max_size: 64 * 1024, // 64KB
-                        sync_writes: true,
-                    };
-                    let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
+        group.bench_with_input(BenchmarkId::new("put_get_cycle", size), size, |b, &size| {
+            b.iter(|| {
+                let dir = tempfile::tempdir().unwrap();
+                let config = oblivion::config::Config {
+                    data_dir: dir.path().to_path_buf(),
+                    memtable_max_size: 64 * 1024, // 64KB
+                    sync_writes: true,
+                };
+                let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 
-                    for i in 0..size {
-                        let key = format!("key_{:06}", i).into_bytes();
-                        let value = format!("value_{:06}", i).into_bytes();
-                        engine.put(key, value).unwrap();
-                    }
+                for i in 0..size {
+                    let key = format!("key_{:06}", i).into_bytes();
+                    let value = format!("value_{:06}", i).into_bytes();
+                    engine.put(key, value).unwrap();
+                }
 
-                    for i in 0..size {
-                        let key = format!("key_{:06}", i);
-                        black_box(engine.get(key.as_bytes()));
-                    }
-                });
-            },
-        );
+                for i in 0..size {
+                    let key = format!("key_{:06}", i);
+                    black_box(engine.get(key.as_bytes()));
+                }
+            });
+        });
     }
 
     group.finish();

@@ -16,6 +16,12 @@ pub struct MemTable {
     size_bytes: usize,
 }
 
+impl Default for MemTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemTable {
     /// Create a new, empty MemTable.
     pub fn new() -> Self {
@@ -101,7 +107,10 @@ impl MemTable {
     pub fn scan_range(&self, start: &[u8], end: &[u8]) -> Vec<(&Key, &Value)> {
         use std::ops::Bound;
         self.entries
-            .range::<Vec<u8>, _>((Bound::Included(start.to_vec()), Bound::Excluded(end.to_vec())))
+            .range::<Vec<u8>, _>((
+                Bound::Included(start.to_vec()),
+                Bound::Excluded(end.to_vec()),
+            ))
             .filter_map(|(k, v)| v.as_ref().map(|val| (k, val)))
             .collect()
     }

@@ -39,10 +39,7 @@ impl WriteAheadLog {
     /// Open or create a WAL file at the specified path.
     /// Uses BufWriter for write batching to reduce syscall overhead.
     pub fn open(path: PathBuf) -> Result<Self> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
         Ok(Self {
             path,
@@ -188,7 +185,10 @@ impl WriteAheadLog {
             let computed_crc = crc32fast::hash(record_data);
 
             if stored_crc != computed_crc {
-                log::warn!("CRC mismatch at offset {}, skipping rest of WAL", record_start);
+                log::warn!(
+                    "CRC mismatch at offset {}, skipping rest of WAL",
+                    record_start
+                );
                 break;
             }
 
@@ -202,10 +202,7 @@ impl WriteAheadLog {
             }
         }
 
-        log::info!(
-            "WAL recovery complete: {} entries restored",
-            memtable.len()
-        );
+        log::info!("WAL recovery complete: {} entries restored", memtable.len());
 
         Ok(memtable)
     }
@@ -229,8 +226,10 @@ mod tests {
 
         {
             let mut wal = WriteAheadLog::open(wal_path.clone()).unwrap();
-            wal.append_put(&b"key1".to_vec(), &b"value1".to_vec()).unwrap();
-            wal.append_put(&b"key2".to_vec(), &b"value2".to_vec()).unwrap();
+            wal.append_put(&b"key1".to_vec(), &b"value1".to_vec())
+                .unwrap();
+            wal.append_put(&b"key2".to_vec(), &b"value2".to_vec())
+                .unwrap();
             wal.append_delete(&b"key1".to_vec()).unwrap();
         }
 

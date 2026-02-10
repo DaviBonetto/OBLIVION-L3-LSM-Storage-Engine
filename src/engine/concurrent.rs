@@ -138,7 +138,9 @@ mod tests {
         let engine = ConcurrentOblivion::open(temp_config()).unwrap();
 
         let engine_clone = engine.clone();
-        engine_clone.put(b"shared".to_vec(), b"data".to_vec()).unwrap();
+        engine_clone
+            .put(b"shared".to_vec(), b"data".to_vec())
+            .unwrap();
 
         // Original engine sees the update
         assert_eq!(engine.get(b"shared"), Some(b"data".to_vec()));

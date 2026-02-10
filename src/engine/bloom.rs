@@ -41,20 +41,18 @@ impl BloomFilter {
     /// - Optimal hashes: `k = (m/n) * ln(2)`
     pub fn new(expected_items: usize, false_positive_rate: f64) -> Self {
         let expected_items = expected_items.max(1);
-        let fp_rate = false_positive_rate.max(0.0001).min(0.5);
+        let fp_rate = false_positive_rate.clamp(0.0001, 0.5);
 
         // Calculate optimal number of bits
-        let num_bits = (-(expected_items as f64) * fp_rate.ln()
-            / (2.0_f64.ln().powi(2)))
-            .ceil() as usize;
+        let num_bits =
+            (-(expected_items as f64) * fp_rate.ln() / (2.0_f64.ln().powi(2))).ceil() as usize;
         let num_bits = num_bits.max(64); // minimum 64 bits
 
         // Calculate optimal number of hash functions
-        let num_hashes = ((num_bits as f64 / expected_items as f64) * 2.0_f64.ln())
-            .ceil() as u32;
+        let num_hashes = ((num_bits as f64 / expected_items as f64) * 2.0_f64.ln()).ceil() as u32;
         let num_hashes = num_hashes.clamp(2, 16);
 
-        let num_bytes = (num_bits + 7) / 8;
+        let num_bytes = num_bits.div_ceil(8);
 
         Self {
             bits: vec![0u8; num_bytes],
@@ -66,7 +64,7 @@ impl BloomFilter {
 
     /// Create a Bloom filter with explicit parameters.
     pub fn with_params(num_bits: usize, num_hashes: u32) -> Self {
-        let num_bytes = (num_bits + 7) / 8;
+        let num_bytes = num_bits.div_ceil(8);
         Self {
             bits: vec![0u8; num_bytes],
             num_bits,
@@ -184,7 +182,11 @@ mod tests {
 
         // With FPR=0.01, we expect ~10 false positives out of 1000
         // But with only 2 items in a 100-item filter, it should be much less
-        assert!(false_positives < 50, "Too many false positives: {}", false_positives);
+        assert!(
+            false_positives < 50,
+            "Too many false positives: {}",
+            false_positives
+        );
     }
 
     #[test]

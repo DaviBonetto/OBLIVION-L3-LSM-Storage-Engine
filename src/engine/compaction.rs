@@ -107,7 +107,7 @@ impl CompactionStrategy for SizeTieredCompaction {
         let mut tiers: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for (idx, table) in sstables.iter().enumerate() {
             let tier = self.tier_for_size(table.size);
-            tiers.entry(tier).or_insert_with(Vec::new).push(idx);
+            tiers.entry(tier).or_default().push(idx);
         }
 
         // Find the first tier with >= threshold tables
@@ -135,9 +135,7 @@ impl CompactionStrategy for SizeTieredCompaction {
 ///
 /// ## Returns
 /// A vector of (key, value) pairs representing the compacted data.
-pub fn compact_sstables(
-    sstables: Vec<Vec<(Key, Value)>>,
-) -> Vec<(Key, Value)> {
+pub fn compact_sstables(sstables: Vec<Vec<(Key, Value)>>) -> Vec<(Key, Value)> {
     let mut merged = BTreeMap::new();
 
     // Merge all entries (later SSTables override earlier)
@@ -148,10 +146,7 @@ pub fn compact_sstables(
     }
 
     // Filter out tombstones (empty values indicate deletion)
-    merged
-        .into_iter()
-        .filter(|(_k, v)| !v.is_empty())
-        .collect()
+    merged.into_iter().filter(|(_k, v)| !v.is_empty()).collect()
 }
 
 #[cfg(test)]

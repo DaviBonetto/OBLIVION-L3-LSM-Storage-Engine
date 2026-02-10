@@ -1,5 +1,5 @@
 //! OBLIVION - LSM-Tree Key-Value Storage Engine
-//! 
+//!
 //! A crash-recoverable storage engine based on the Log-Structured Merge-Tree (LSM-Tree) architecture.
 //!
 //! ## Features

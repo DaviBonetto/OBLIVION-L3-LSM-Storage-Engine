@@ -2,11 +2,10 @@
 //! End-to-end tests validating the full engine lifecycle:
 //! open → put → get → delete → scan → crash recovery → flush.
 
-
 // Import the library modules directly from the binary crate
 // by using the module path structure.
 mod common {
-    
+
     /// Create a Config pointing to a temporary directory.
     pub fn temp_config(dir: &std::path::Path) -> oblivion::config::Config {
         oblivion::config::Config {
@@ -87,7 +86,9 @@ fn test_crash_recovery() {
         };
         let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 
-        engine.put(b"persistent_key".to_vec(), b"persistent_value".to_vec()).unwrap();
+        engine
+            .put(b"persistent_key".to_vec(), b"persistent_value".to_vec())
+            .unwrap();
         engine.put(b"ephemeral".to_vec(), b"data".to_vec()).unwrap();
         engine.delete(b"ephemeral".to_vec()).unwrap();
 
@@ -150,9 +151,15 @@ fn test_unicode_keys() {
     let config = common::temp_config(dir.path());
     let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 
-    engine.put("café".as_bytes().to_vec(), b"coffee".to_vec()).unwrap();
-    engine.put("日本語".as_bytes().to_vec(), b"japanese".to_vec()).unwrap();
-    engine.put("🦀".as_bytes().to_vec(), b"crab".to_vec()).unwrap();
+    engine
+        .put("café".as_bytes().to_vec(), b"coffee".to_vec())
+        .unwrap();
+    engine
+        .put("日本語".as_bytes().to_vec(), b"japanese".to_vec())
+        .unwrap();
+    engine
+        .put("🦀".as_bytes().to_vec(), b"crab".to_vec())
+        .unwrap();
 
     assert_eq!(engine.get("café".as_bytes()), Some(b"coffee".to_vec()));
     assert_eq!(engine.get("日本語".as_bytes()), Some(b"japanese".to_vec()));

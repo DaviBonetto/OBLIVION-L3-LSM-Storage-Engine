@@ -73,11 +73,7 @@ impl TtlIndex {
     pub fn remaining_ttl(&self, key: &[u8]) -> Option<u64> {
         self.expirations.get(key).map(|&expires_at| {
             let now = Self::now_ms();
-            if now >= expires_at {
-                0
-            } else {
-                expires_at - now
-            }
+            expires_at.saturating_sub(now)
         })
     }
 

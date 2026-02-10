@@ -163,11 +163,12 @@ impl Oblivion {
             self.ttl_index.purge_expired();
 
             // In production: write MemTable entries to SSTable
-            let sstable_path = self.config.data_dir.join(format!(
-                "sstable_{:06}.sst",
-                self.flush_count
-            ));
-            let entries = self.memtable
+            let sstable_path = self
+                .config
+                .data_dir
+                .join(format!("sstable_{:06}.sst", self.flush_count));
+            let entries = self
+                .memtable
                 .scan()
                 .into_iter()
                 .filter(|(k, _)| !self.ttl_index.is_expired(k))
