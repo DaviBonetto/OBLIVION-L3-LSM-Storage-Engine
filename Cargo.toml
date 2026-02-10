@@ -2,8 +2,9 @@
 name = "oblivion"
 version = "1.0.0"
 edition = "2021"
-description = "LSM-Tree based Key-Value Storage Engine - Titan Protocol L3"
 authors = ["Davi Bonetto <davi.bonetto100@gmail.com>"]
+description = "LSM-Tree Key-Value Storage Engine"
+license = "MIT"
 
 [[bin]]
 name = "oblivion"
@@ -20,3 +21,8 @@ env_logger = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "engine_bench"
+harness = false
