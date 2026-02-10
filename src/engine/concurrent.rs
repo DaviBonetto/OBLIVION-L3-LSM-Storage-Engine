@@ -119,8 +119,9 @@ mod tests {
     fn temp_config() -> Config {
         let dir = tempfile::tempdir().unwrap();
         Config {
-            data_dir: dir.into_path(),
+            data_dir: dir.path().to_path_buf(),
             memtable_max_size: 64 * 1024,
+            sync_writes: true,
         }
     }
 

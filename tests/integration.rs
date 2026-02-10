@@ -14,6 +14,7 @@ mod common {
         oblivion::config::Config {
             data_dir: dir.to_path_buf(),
             memtable_max_size: 1024, // 1KB threshold for easy flush testing
+            sync_writes: true,
         }
     }
 }
@@ -84,6 +85,7 @@ fn test_crash_recovery() {
         let config = oblivion::config::Config {
             data_dir: data_path.clone(),
             memtable_max_size: 64 * 1024, // large threshold, no flush
+            sync_writes: true,
         };
         let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 
@@ -99,6 +101,7 @@ fn test_crash_recovery() {
         let config = oblivion::config::Config {
             data_dir: data_path,
             memtable_max_size: 64 * 1024,
+            sync_writes: true,
         };
         let engine = oblivion::engine::Oblivion::open(config).unwrap();
 
@@ -132,6 +135,7 @@ fn test_large_values() {
     let config = oblivion::config::Config {
         data_dir: dir.path().to_path_buf(),
         memtable_max_size: 1024 * 1024, // 1MB
+        sync_writes: true,
     };
     let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 

@@ -112,19 +112,19 @@ impl EngineMetrics {
         format!(
             "\n═══ OBLIVION Engine Metrics ═══\n\
              Operations:\n\
-             \  puts:      {}\n\
-             \  gets:      {}\n\
-             \  deletes:   {}\n\
-             \  scans:     {}\n\
-             \  flushes:   {}\n\
+               puts:      {}\n\
+               gets:      {}\n\
+               deletes:   {}\n\
+               scans:     {}\n\
+               flushes:   {}\n\
              Throughput:\n\
-             \  total ops: {}\n\
-             \  ops/sec:   {:.2}\n\
+               total ops: {}\n\
+               ops/sec:   {:.2}\n\
              I/O:\n\
-             \  written:   {} bytes\n\
-             \  read:      {} bytes\n\
+               written:   {} bytes\n\
+               read:      {} bytes\n\
              Recovery:\n\
-             \  wal recoveries: {}\n\
+               wal recoveries: {}\n\
              Uptime: {:.2}s",
             self.puts.load(Ordering::Relaxed),
             self.gets.load(Ordering::Relaxed),

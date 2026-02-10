@@ -6,6 +6,10 @@ authors = ["Davi Bonetto <davi.bonetto100@gmail.com>"]
 description = "LSM-Tree Key-Value Storage Engine"
 license = "MIT"
 
+[lib]
+name = "oblivion"
+path = "src/lib.rs"
+
 [[bin]]
 name = "oblivion"
 path = "src/main.rs"

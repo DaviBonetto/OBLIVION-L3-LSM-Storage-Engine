@@ -149,7 +149,8 @@ fn bench_engine_e2e(c: &mut Criterion) {
                     let dir = tempfile::tempdir().unwrap();
                     let config = oblivion::config::Config {
                         data_dir: dir.path().to_path_buf(),
-                        memtable_max_size: 1024 * 1024,
+                        memtable_max_size: 64 * 1024, // 64KB
+                        sync_writes: true,
                     };
                     let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 
