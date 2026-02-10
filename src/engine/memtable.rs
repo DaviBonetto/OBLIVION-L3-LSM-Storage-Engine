@@ -41,7 +41,6 @@ impl MemTable {
     }
 
     /// Insert a key-value pair into the MemTable.
-    /// If the key already exists, the old value is replaced.
     pub fn insert(&mut self, key: Key, value: Value) {
         let entry_size = key.len() + value.len();
         if let Some(old_val) = self.entries.get(&key) {
@@ -53,7 +52,6 @@ impl MemTable {
     }
 
     /// Get a value by key from the MemTable.
-    /// Returns `None` if the key does not exist or has been deleted (tombstone).
     pub fn get(&self, key: &[u8]) -> Option<&Value> {
         match self.entries.get(key) {
             Some(Some(value)) => Some(value),
@@ -87,6 +85,34 @@ impl MemTable {
     /// Returns a reference to the inner BTreeMap for iteration.
     pub fn entries(&self) -> &BTreeMap<Key, Option<Value>> {
         &self.entries
+    }
+
+    /// Scan all key-value pairs in sorted order.
+    /// Tombstones (deleted keys) are excluded from the results.
+    pub fn scan(&self) -> Vec<(&Key, &Value)> {
+        self.entries
+            .iter()
+            .filter_map(|(k, v)| v.as_ref().map(|val| (k, val)))
+            .collect()
+    }
+
+    /// Scan a range of keys [start, end) in sorted order.
+    /// Tombstones are excluded from the results.
+    pub fn scan_range(&self, start: &[u8], end: &[u8]) -> Vec<(&Key, &Value)> {
+        use std::ops::Bound;
+        self.entries
+            .range::<Vec<u8>, _>((Bound::Included(start.to_vec()), Bound::Excluded(end.to_vec())))
+            .filter_map(|(k, v)| v.as_ref().map(|val| (k, val)))
+            .collect()
+    }
+
+    /// Scan keys with a given prefix in sorted order.
+    pub fn scan_prefix(&self, prefix: &[u8]) -> Vec<(&Key, &Value)> {
+        self.entries
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .filter_map(|(k, v)| v.as_ref().map(|val| (k, val)))
+            .collect()
     }
 }
 
@@ -122,14 +148,14 @@ mod tests {
         table.insert(b"key".to_vec(), b"value".to_vec());
         table.delete(b"key".to_vec());
         assert_eq!(table.get(b"key"), None);
-        assert!(table.contains_key(b"key")); // tombstone still exists
+        assert!(table.contains_key(b"key"));
     }
 
     #[test]
     fn test_size_tracking() {
         let mut table = MemTable::new();
         assert_eq!(table.size(), 0);
-        table.insert(b"abc".to_vec(), b"12345".to_vec()); // 3 + 5 = 8
+        table.insert(b"abc".to_vec(), b"12345".to_vec());
         assert_eq!(table.size(), 8);
     }
 
@@ -141,5 +167,37 @@ mod tests {
         table.clear();
         assert!(table.is_empty());
         assert_eq!(table.size(), 0);
+    }
+
+    #[test]
+    fn test_scan_sorted_order() {
+        let mut table = MemTable::new();
+        table.insert(b"charlie".to_vec(), b"3".to_vec());
+        table.insert(b"alpha".to_vec(), b"1".to_vec());
+        table.insert(b"bravo".to_vec(), b"2".to_vec());
+        let results = table.scan();
+        let keys: Vec<&[u8]> = results.iter().map(|(k, _)| k.as_slice()).collect();
+        assert_eq!(keys, vec![b"alpha", b"bravo", b"charlie"]);
+    }
+
+    #[test]
+    fn test_scan_excludes_tombstones() {
+        let mut table = MemTable::new();
+        table.insert(b"a".to_vec(), b"1".to_vec());
+        table.insert(b"b".to_vec(), b"2".to_vec());
+        table.delete(b"a".to_vec());
+        let results = table.scan();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, b"b");
+    }
+
+    #[test]
+    fn test_scan_prefix() {
+        let mut table = MemTable::new();
+        table.insert(b"user:1".to_vec(), b"alice".to_vec());
+        table.insert(b"user:2".to_vec(), b"bob".to_vec());
+        table.insert(b"item:1".to_vec(), b"sword".to_vec());
+        let results = table.scan_prefix(b"user:");
+        assert_eq!(results.len(), 2);
     }
 }
