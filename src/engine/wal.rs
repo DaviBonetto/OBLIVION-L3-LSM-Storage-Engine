@@ -3,9 +3,10 @@
 //! before they are applied to the in-memory MemTable.
 
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
+use crate::engine::memtable::MemTable;
 use crate::error::{OblivionError, Result};
 use crate::types::{Key, Value};
 
@@ -21,7 +22,7 @@ enum OpType {
 ///
 /// ## Binary Format (per entry)
 /// ```text
-/// [op_type: 1 byte][key_len: 4 bytes (LE)][key: N bytes][val_len: 4 bytes (LE)][value: M bytes][crc: 4 bytes]
+/// [op_type: 1 byte][key_len: 4 bytes LE][key: N bytes][val_len: 4 bytes LE][value: M bytes][crc: 4 bytes]
 /// ```
 pub struct WriteAheadLog {
     /// Path to the WAL file on disk.
@@ -72,12 +73,10 @@ impl WriteAheadLog {
     }
 
     /// Append a PUT operation to the WAL and flush to disk.
-    /// This ensures durability: the write is persisted before
-    /// the MemTable is updated in memory.
     pub fn append_put(&mut self, key: &Key, value: &Value) -> Result<()> {
         let encoded = Self::encode_put(key, value);
         self.file.write_all(&encoded)?;
-        self.file.sync_all()?; // fsync for durability
+        self.file.sync_all()?;
         Ok(())
     }
 
@@ -85,23 +84,159 @@ impl WriteAheadLog {
     pub fn append_delete(&mut self, key: &Key) -> Result<()> {
         let encoded = Self::encode_delete(key);
         self.file.write_all(&encoded)?;
-        self.file.sync_all()?; // fsync for durability
+        self.file.sync_all()?;
         Ok(())
     }
 
-    /// Truncate the WAL file (called after successful flush to SSTable).
+    /// Truncate the WAL file (called after successful flush).
     pub fn truncate(&mut self) -> Result<()> {
-        // Reopen the file in truncate mode
         self.file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(&self.path)?;
-        // Reopen in append mode
         self.file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
         Ok(())
+    }
+
+    /// Recover the MemTable state from the WAL file.
+    /// Reads all entries from the WAL and replays them into
+    /// a fresh MemTable. This is called on startup to restore
+    /// state after a crash.
+    pub fn recover(path: &PathBuf) -> Result<MemTable> {
+        let mut memtable = MemTable::new();
+
+        // If WAL file doesn't exist, return empty MemTable
+        if !path.exists() {
+            return Ok(memtable);
+        }
+
+        let mut file = File::open(path)?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)?;
+
+        let mut cursor = 0;
+        let len = data.len();
+
+        while cursor < len {
+            // Need at least 1 (op) + 4 (key_len) bytes
+            if cursor + 5 > len {
+                break;
+            }
+
+            // Read op type
+            let op_byte = data[cursor];
+            cursor += 1;
+
+            // Read key length
+            let key_len = u32::from_le_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]) as usize;
+            cursor += 4;
+
+            // Read key
+            if cursor + key_len > len {
+                break;
+            }
+            let key = data[cursor..cursor + key_len].to_vec();
+            cursor += key_len;
+
+            // Read value length
+            if cursor + 4 > len {
+                break;
+            }
+            let val_len = u32::from_le_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]) as usize;
+            cursor += 4;
+
+            // Read value
+            if cursor + val_len > len {
+                break;
+            }
+            let value = data[cursor..cursor + val_len].to_vec();
+            cursor += val_len;
+
+            // Read and verify CRC
+            if cursor + 4 > len {
+                break;
+            }
+            let stored_crc = u32::from_le_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]);
+            cursor += 4;
+
+            // Reconstruct the data to verify CRC
+            let record_start = cursor - 4 - val_len - 4 - key_len - 4 - 1;
+            let record_data = &data[record_start..cursor - 4];
+            let computed_crc = crc32fast::hash(record_data);
+
+            if stored_crc != computed_crc {
+                log::warn!("CRC mismatch at offset {}, skipping rest of WAL", record_start);
+                break;
+            }
+
+            // Replay the operation
+            match op_byte {
+                1 => memtable.insert(key, value), // Put
+                2 => memtable.delete(key),         // Delete
+                _ => {
+                    log::warn!("Unknown op type {} at offset {}", op_byte, record_start);
+                    break;
+                }
+            }
+        }
+
+        log::info!(
+            "WAL recovery complete: {} entries restored",
+            memtable.len()
+        );
+
+        Ok(memtable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_encode_decode_roundtrip() {
+        let encoded = WriteAheadLog::encode_put(b"hello", b"world");
+        // Verify: op(1) + key_len(4) + key(5) + val_len(4) + val(5) + crc(4) = 23
+        assert_eq!(encoded.len(), 23);
+        assert_eq!(encoded[0], OpType::Put as u8);
+    }
+
+    #[test]
+    fn test_wal_append_and_recover() {
+        let dir = tempfile::tempdir().unwrap();
+        let wal_path = dir.path().join("test.wal");
+
+        // Write some data
+        {
+            let mut wal = WriteAheadLog::open(wal_path.clone()).unwrap();
+            wal.append_put(&b"key1".to_vec(), &b"value1".to_vec()).unwrap();
+            wal.append_put(&b"key2".to_vec(), &b"value2".to_vec()).unwrap();
+            wal.append_delete(&b"key1".to_vec()).unwrap();
+        }
+
+        // Recover
+        let memtable = WriteAheadLog::recover(&wal_path).unwrap();
+        assert_eq!(memtable.get(b"key1"), None); // deleted
+        assert_eq!(memtable.get(b"key2"), Some(&b"value2".to_vec()));
     }
 }
