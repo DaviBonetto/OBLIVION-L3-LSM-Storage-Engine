@@ -3,6 +3,7 @@
 
 pub mod bloom;
 pub mod memtable;
+pub mod metrics;
 pub mod sstable;
 pub mod wal;
 
@@ -11,6 +12,7 @@ use crate::error::Result;
 use crate::types::{Key, Value};
 
 use self::memtable::MemTable;
+use self::metrics::EngineMetrics;
 use self::wal::WriteAheadLog;
 
 /// The core Oblivion storage engine.
@@ -25,6 +27,8 @@ pub struct Oblivion {
     config: Config,
     /// Counter for SSTable file naming.
     flush_count: u64,
+    /// Runtime operation metrics.
+    metrics: EngineMetrics,
 }
 
 impl Oblivion {
@@ -35,6 +39,11 @@ impl Oblivion {
         let wal_path = config.data_dir.join("oblivion.wal");
         let memtable = WriteAheadLog::recover(&wal_path)?;
         let wal = WriteAheadLog::open(wal_path)?;
+
+        let metrics = EngineMetrics::new();
+        if !memtable.is_empty() {
+            metrics.record_recovery();
+        }
 
         log::info!(
             "Oblivion engine opened at {:?} ({} entries recovered)",
@@ -47,12 +56,14 @@ impl Oblivion {
             wal,
             config,
             flush_count: 0,
+            metrics,
         })
     }
 
     /// Insert a key-value pair into the storage engine.
     /// Write path: WAL (disk) -> MemTable (memory) -> check flush.
     pub fn put(&mut self, key: Key, value: Value) -> Result<()> {
+        self.metrics.record_put(key.len(), value.len());
         self.wal.append_put(&key, &value)?;
         self.memtable.insert(key, value);
 
@@ -65,11 +76,14 @@ impl Oblivion {
     /// Get a value by key from the storage engine.
     /// Read path: MemTable (memory) -> (future: SSTables on disk).
     pub fn get(&self, key: &[u8]) -> Option<Value> {
-        self.memtable.get(key).cloned()
+        let result = self.memtable.get(key).cloned();
+        self.metrics.record_get(result.as_ref().map(|v| v.len()));
+        result
     }
 
     /// Delete a key from the storage engine.
     pub fn delete(&mut self, key: Key) -> Result<()> {
+        self.metrics.record_delete();
         self.wal.append_delete(&key)?;
         self.memtable.delete(key);
         self.maybe_flush()?;
@@ -78,6 +92,7 @@ impl Oblivion {
 
     /// Scan all key-value pairs in sorted order.
     pub fn scan(&self) -> Vec<(Key, Value)> {
+        self.metrics.record_scan();
         self.memtable
             .scan()
             .into_iter()
@@ -98,6 +113,11 @@ impl Oblivion {
     /// Returns the approximate size of the MemTable in bytes.
     pub fn memtable_size(&self) -> usize {
         self.memtable.size()
+    }
+
+    /// Returns a reference to the engine metrics.
+    pub fn metrics(&self) -> &EngineMetrics {
+        &self.metrics
     }
 
     /// Check if the MemTable exceeds the configured size threshold.
@@ -125,6 +145,7 @@ impl Oblivion {
             // Reset MemTable
             self.memtable.clear();
             self.flush_count += 1;
+            self.metrics.record_flush();
 
             log::info!(
                 "Flush #{} complete. {} entries written to SSTable.",
