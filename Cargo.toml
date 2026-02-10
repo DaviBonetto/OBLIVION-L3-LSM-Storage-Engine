@@ -1,6 +1,19 @@
 [package]
-name = "OBLIVION-L3-LSM-Storage-Engine"
-version = "0.1.0"
-edition = "2024"
+name = "oblivion"
+version = "1.0.0"
+edition = "2021"
+description = "LSM-Tree based Key-Value Storage Engine - Titan Protocol L3"
+authors = ["Davi Bonetto <davi.bonetto100@gmail.com>"]
+
+[[bin]]
+name = "oblivion"
+path = "src/main.rs"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+crc32fast = "1"
+thiserror = "1"
+bytes = "1"
+log = "0.4"
+env_logger = "0.10"
