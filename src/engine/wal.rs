@@ -18,8 +18,6 @@ enum OpType {
 }
 
 /// Write-Ahead Log for crash recovery and durability.
-/// Every write operation is first appended to the WAL on disk
-/// before being applied to the MemTable in memory.
 ///
 /// ## Binary Format (per entry)
 /// ```text
@@ -51,15 +49,11 @@ impl WriteAheadLog {
     /// Encode a PUT entry into the binary WAL format.
     fn encode_put(key: &[u8], value: &[u8]) -> Vec<u8> {
         let mut buf = Vec::new();
-        // Op type
         buf.push(OpType::Put as u8);
-        // Key length + key
         buf.extend_from_slice(&(key.len() as u32).to_le_bytes());
         buf.extend_from_slice(key);
-        // Value length + value
         buf.extend_from_slice(&(value.len() as u32).to_le_bytes());
         buf.extend_from_slice(value);
-        // CRC32 checksum
         let crc = crc32fast::hash(&buf);
         buf.extend_from_slice(&crc.to_le_bytes());
         buf
@@ -68,16 +62,46 @@ impl WriteAheadLog {
     /// Encode a DELETE entry into the binary WAL format.
     fn encode_delete(key: &[u8]) -> Vec<u8> {
         let mut buf = Vec::new();
-        // Op type
         buf.push(OpType::Delete as u8);
-        // Key length + key
         buf.extend_from_slice(&(key.len() as u32).to_le_bytes());
         buf.extend_from_slice(key);
-        // Value length = 0 for deletes
         buf.extend_from_slice(&0u32.to_le_bytes());
-        // CRC32 checksum
         let crc = crc32fast::hash(&buf);
         buf.extend_from_slice(&crc.to_le_bytes());
         buf
+    }
+
+    /// Append a PUT operation to the WAL and flush to disk.
+    /// This ensures durability: the write is persisted before
+    /// the MemTable is updated in memory.
+    pub fn append_put(&mut self, key: &Key, value: &Value) -> Result<()> {
+        let encoded = Self::encode_put(key, value);
+        self.file.write_all(&encoded)?;
+        self.file.sync_all()?; // fsync for durability
+        Ok(())
+    }
+
+    /// Append a DELETE operation to the WAL and flush to disk.
+    pub fn append_delete(&mut self, key: &Key) -> Result<()> {
+        let encoded = Self::encode_delete(key);
+        self.file.write_all(&encoded)?;
+        self.file.sync_all()?; // fsync for durability
+        Ok(())
+    }
+
+    /// Truncate the WAL file (called after successful flush to SSTable).
+    pub fn truncate(&mut self) -> Result<()> {
+        // Reopen the file in truncate mode
+        self.file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&self.path)?;
+        // Reopen in append mode
+        self.file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        Ok(())
     }
 }
