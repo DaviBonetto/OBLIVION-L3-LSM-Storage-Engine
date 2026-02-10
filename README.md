@@ -11,6 +11,7 @@
 
 ### 🗄️ System 13/300: LSM-Tree Key-Value Storage Engine
 
+[![CI](https://github.com/DaviBonetto/OBLIVION-L3-LSM-Storage-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/DaviBonetto/OBLIVION-L3-LSM-Storage-Engine/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![LSM-Tree](https://img.shields.io/badge/Architecture-LSM--Tree-blue?style=for-the-badge)](https://en.wikipedia.org/wiki/Log-structured_merge-tree)
 [![NoSQL](https://img.shields.io/badge/Type-NoSQL-orange?style=for-the-badge)](https://en.wikipedia.org/wiki/NoSQL)
