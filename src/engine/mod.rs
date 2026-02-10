@@ -2,6 +2,7 @@
 //! Top-level module for the LSM-Tree storage engine components.
 
 pub mod bloom;
+pub mod compaction;
 pub mod memtable;
 pub mod metrics;
 pub mod sstable;
