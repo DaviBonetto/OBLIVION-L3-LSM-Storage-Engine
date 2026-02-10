@@ -3,7 +3,7 @@
 //! before they are applied to the in-memory MemTable.
 
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 
 use crate::engine::memtable::MemTable;
@@ -24,22 +24,30 @@ enum OpType {
 /// ```text
 /// [op_type: 1 byte][key_len: 4 bytes LE][key: N bytes][val_len: 4 bytes LE][value: M bytes][crc: 4 bytes]
 /// ```
+///
+/// Uses BufWriter to batch syscalls for improved write throughput.
 pub struct WriteAheadLog {
     /// Path to the WAL file on disk.
     path: PathBuf,
-    /// File handle opened for appending.
-    file: File,
+    /// Buffered writer wrapping the file handle.
+    /// BufWriter reduces the number of write syscalls by
+    /// batching small writes into larger chunks (8KB default).
+    writer: BufWriter<File>,
 }
 
 impl WriteAheadLog {
     /// Open or create a WAL file at the specified path.
+    /// Uses BufWriter for write batching to reduce syscall overhead.
     pub fn open(path: PathBuf) -> Result<Self> {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)?;
 
-        Ok(Self { path, file })
+        Ok(Self {
+            path,
+            writer: BufWriter::new(file),
+        })
     }
 
     /// Returns the path to the WAL file.
@@ -73,43 +81,47 @@ impl WriteAheadLog {
     }
 
     /// Append a PUT operation to the WAL and flush to disk.
+    /// BufWriter batches the write, then flush + sync ensures durability.
     pub fn append_put(&mut self, key: &Key, value: &Value) -> Result<()> {
         let encoded = Self::encode_put(key, value);
-        self.file.write_all(&encoded)?;
-        self.file.sync_all()?;
+        self.writer.write_all(&encoded)?;
+        self.writer.flush()?;
+        self.writer.get_ref().sync_all()?;
         Ok(())
     }
 
     /// Append a DELETE operation to the WAL and flush to disk.
     pub fn append_delete(&mut self, key: &Key) -> Result<()> {
         let encoded = Self::encode_delete(key);
-        self.file.write_all(&encoded)?;
-        self.file.sync_all()?;
+        self.writer.write_all(&encoded)?;
+        self.writer.flush()?;
+        self.writer.get_ref().sync_all()?;
         Ok(())
     }
 
     /// Truncate the WAL file (called after successful flush).
     pub fn truncate(&mut self) -> Result<()> {
-        self.file = OpenOptions::new()
+        // Flush any remaining buffered data
+        self.writer.flush()?;
+        // Truncate
+        let file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(&self.path)?;
-        self.file = OpenOptions::new()
+        // Reopen in append mode with BufWriter
+        let file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
+        self.writer = BufWriter::new(file);
         Ok(())
     }
 
     /// Recover the MemTable state from the WAL file.
-    /// Reads all entries from the WAL and replays them into
-    /// a fresh MemTable. This is called on startup to restore
-    /// state after a crash.
     pub fn recover(path: &PathBuf) -> Result<MemTable> {
         let mut memtable = MemTable::new();
 
-        // If WAL file doesn't exist, return empty MemTable
         if !path.exists() {
             return Ok(memtable);
         }
@@ -122,16 +134,13 @@ impl WriteAheadLog {
         let len = data.len();
 
         while cursor < len {
-            // Need at least 1 (op) + 4 (key_len) bytes
             if cursor + 5 > len {
                 break;
             }
 
-            // Read op type
             let op_byte = data[cursor];
             cursor += 1;
 
-            // Read key length
             let key_len = u32::from_le_bytes([
                 data[cursor],
                 data[cursor + 1],
@@ -140,14 +149,12 @@ impl WriteAheadLog {
             ]) as usize;
             cursor += 4;
 
-            // Read key
             if cursor + key_len > len {
                 break;
             }
             let key = data[cursor..cursor + key_len].to_vec();
             cursor += key_len;
 
-            // Read value length
             if cursor + 4 > len {
                 break;
             }
@@ -159,14 +166,12 @@ impl WriteAheadLog {
             ]) as usize;
             cursor += 4;
 
-            // Read value
             if cursor + val_len > len {
                 break;
             }
             let value = data[cursor..cursor + val_len].to_vec();
             cursor += val_len;
 
-            // Read and verify CRC
             if cursor + 4 > len {
                 break;
             }
@@ -178,7 +183,6 @@ impl WriteAheadLog {
             ]);
             cursor += 4;
 
-            // Reconstruct the data to verify CRC
             let record_start = cursor - 4 - val_len - 4 - key_len - 4 - 1;
             let record_data = &data[record_start..cursor - 4];
             let computed_crc = crc32fast::hash(record_data);
@@ -188,10 +192,9 @@ impl WriteAheadLog {
                 break;
             }
 
-            // Replay the operation
             match op_byte {
-                1 => memtable.insert(key, value), // Put
-                2 => memtable.delete(key),         // Delete
+                1 => memtable.insert(key, value),
+                2 => memtable.delete(key),
                 _ => {
                     log::warn!("Unknown op type {} at offset {}", op_byte, record_start);
                     break;
@@ -211,12 +214,10 @@ impl WriteAheadLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
 
     #[test]
     fn test_encode_decode_roundtrip() {
         let encoded = WriteAheadLog::encode_put(b"hello", b"world");
-        // Verify: op(1) + key_len(4) + key(5) + val_len(4) + val(5) + crc(4) = 23
         assert_eq!(encoded.len(), 23);
         assert_eq!(encoded[0], OpType::Put as u8);
     }
@@ -226,7 +227,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let wal_path = dir.path().join("test.wal");
 
-        // Write some data
         {
             let mut wal = WriteAheadLog::open(wal_path.clone()).unwrap();
             wal.append_put(&b"key1".to_vec(), &b"value1".to_vec()).unwrap();
@@ -234,9 +234,8 @@ mod tests {
             wal.append_delete(&b"key1".to_vec()).unwrap();
         }
 
-        // Recover
         let memtable = WriteAheadLog::recover(&wal_path).unwrap();
-        assert_eq!(memtable.get(b"key1"), None); // deleted
+        assert_eq!(memtable.get(b"key1"), None);
         assert_eq!(memtable.get(b"key2"), Some(&b"value2".to_vec()));
     }
 }
