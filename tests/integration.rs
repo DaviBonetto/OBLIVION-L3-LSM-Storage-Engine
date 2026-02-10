@@ -164,7 +164,12 @@ fn test_unicode_keys() {
 #[test]
 fn test_many_writes_trigger_info() {
     let dir = tempfile::tempdir().unwrap();
-    let config = common::temp_config(dir.path());
+    // Use larger threshold to prevent flush during test
+    let config = oblivion::config::Config {
+        data_dir: dir.path().to_path_buf(),
+        memtable_max_size: 64 * 1024, // 64KB - enough for 100 writes
+        sync_writes: true,
+    };
     let mut engine = oblivion::engine::Oblivion::open(config).unwrap();
 
     for i in 0..100 {
