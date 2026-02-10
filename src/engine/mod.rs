@@ -46,23 +46,49 @@ impl Oblivion {
     }
 
     /// Insert a key-value pair into the storage engine.
-    /// The write path: WAL (disk) -> MemTable (memory).
-    /// This ensures durability: if the process crashes after
-    /// WAL write but before MemTable update, the WAL recovery
-    /// will replay the operation on next startup.
+    /// Write path: WAL (disk) -> MemTable (memory).
     pub fn put(&mut self, key: Key, value: Value) -> Result<()> {
-        // Step 1: Write to WAL first (durability)
         self.wal.append_put(&key, &value)?;
-        // Step 2: Write to MemTable (fast reads)
         self.memtable.insert(key, value);
         Ok(())
     }
 
+    /// Get a value by key from the storage engine.
+    /// Read path: MemTable (memory) -> (future: SSTables on disk).
+    /// In a full LSM implementation, if not found in MemTable,
+    /// we would check immutable MemTables, then SSTables (L0 -> LN).
+    pub fn get(&self, key: &[u8]) -> Option<Value> {
+        self.memtable.get(key).cloned()
+    }
+
     /// Delete a key from the storage engine.
-    /// Writes a tombstone to both WAL and MemTable.
     pub fn delete(&mut self, key: Key) -> Result<()> {
         self.wal.append_delete(&key)?;
         self.memtable.delete(key);
         Ok(())
+    }
+
+    /// Scan all key-value pairs in sorted order.
+    pub fn scan(&self) -> Vec<(Key, Value)> {
+        self.memtable
+            .scan()
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    /// Returns the number of entries in the MemTable.
+    pub fn len(&self) -> usize {
+        self.memtable.len()
+    }
+
+    /// Returns true if the engine has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.memtable.is_empty()
+    }
+
+    /// Returns the approximate size of the MemTable in bytes.
+    pub fn memtable_size(&self) -> usize {
+        self.memtable.size()
     }
 }
