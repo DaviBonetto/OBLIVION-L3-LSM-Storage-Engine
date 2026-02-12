@@ -31,7 +31,7 @@ Crash-recoverable, WAL-durable, with Bloom Filters, TTL expiration, and thread-s
 
 OBLIVION is a **Log-Structured Merge-Tree (LSM-Tree) key-value storage engine** — the same architecture that powers databases like LevelDB, RocksDB, and Apache Cassandra.
 
-It implements the full LSM write path: writes go to a **Write-Ahead Log (WAL)** for durability, then to an in-memory **MemTable** (sorted BTreeMap), and finally flush to immutable **SSTables** on disk when the memory threshold is reached
+It implements the full LSM write path: writes go to a **Write-Ahead Log (WAL)** for durability, then to an in-memory **MemTable** (sorted BTreeMap), and finally flush to immutable **SSTables** on disk when the memory threshold is reached.
 
 **What makes it interesting:**
 
